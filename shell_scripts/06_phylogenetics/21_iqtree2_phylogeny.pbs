@@ -1,0 +1,56 @@
+#!/bin/bash
+# Purpose: infer maximum-likelihood phylogeny from concatenated loci alignment
+#          using IQ-TREE 2, with partition model from PartitionFinder output.
+# Note: run once per supergroup — not an array job.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: PARTITIONS_FILE is the IQ-TREE formatted partition file from PartitionFinder's
+#       best_scheme.txt output — not the raw partitions.txt from catfasta2phyml.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N iqtree2_phylogeny
+#PBS -l select=1:ncpus=16:mem=64gb:scratch_local=100gb
+#PBS -l walltime=23:59:00
+#PBS -o iqtree2_phylogeny.out
+#PBS -e iqtree2_phylogeny.err
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+ALIGNMENT="${PROJECT_DIR}/out_concat_supergroup${SUPERGROUP}/ConcatenatedLoci.phy"
+PARTITIONS_FILE="${PROJECT_DIR}/in_partition_finder_supergroup${SUPERGROUP}/best_scheme_iqtree.txt"
+OUTPUT_DIR="${PROJECT_DIR}/out_iqtree2_supergroup${SUPERGROUP}"
+THREADS="16"
+BOOTSTRAPS="1000"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load iqtree
+
+##### copy necessary files to scratch #####
+
+rsync -a "$ALIGNMENT" "${SCRATCHDIR}"
+rsync -a "$PARTITIONS_FILE" "${SCRATCHDIR}"
+
+##### run iqtree2 with partitioned model and ultrafast bootstrap #####
+
+iqtree2 \
+  -s "$(basename "$ALIGNMENT")" \
+  -p "$(basename "$PARTITIONS_FILE")" \
+  --prefix "${OUTPUT_DIR}/WolbTree${SUPERGROUP}" \
+  -B "$BOOTSTRAPS" \
+  --alrt "$BOOTSTRAPS" \
+  --boot-trees \
+  --wbtl \
+  --bnni \
+  -T "$THREADS" \
+  -m MFP

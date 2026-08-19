@@ -1,0 +1,64 @@
+#!/bin/bash
+# Purpose: build Bowtie2 index from combined Wolbachia reference genomes (supergroups A+B)
+#          and map trimmed reads per sample.
+# Note: index building runs only once (guarded by a check); mapping is an array job.
+# Note: reference genomes (superA.fasta, superB.fasta) must be placed in resources/references/.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N bowtie2_map_wolb
+#PBS -l select=1:ncpus=10:mem=32gb:scratch_local=60gb
+#PBS -l walltime=12:00:00
+#PBS -o bowtie2_map_wolb.out
+#PBS -e bowtie2_map_wolb.err
+#PBS -J 1-84
+
+##### define variables #####
+
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+LIST="${PROJECT_DIR}/resources/samples.txt"
+TRIMMED_DIR="${PROJECT_DIR}/out_fastp"
+REF_DIR="${PROJECT_DIR}/resources/references"
+COMBINED_REF="${REF_DIR}/wolbCombined.fasta"
+INDEX_PREFIX="${REF_DIR}/wolbCombined"
+OUTPUT_DIR="${PROJECT_DIR}/out_bowtie2_mapping"
+THREADS="10"
+
+##### define substitution list for array variables #####
+
+SAMPLE="$(sed -n "${PBS_ARRAY_INDEX}p" "${LIST}")"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load bowtie2
+
+##### build combined reference (only once — skipped if index already exists) #####
+
+if [ ! -f "${INDEX_PREFIX}.1.bt2" ]; then
+  cat "${REF_DIR}/superA.fasta" "${REF_DIR}/superB.fasta" > "$COMBINED_REF"
+  bowtie2-build "$COMBINED_REF" "$INDEX_PREFIX"
+fi
+
+##### copy necessary files to scratch #####
+
+rsync -a "${TRIMMED_DIR}/${SAMPLE}.R1.fq.gz" "${SCRATCHDIR}"
+rsync -a "${TRIMMED_DIR}/${SAMPLE}.R2.fq.gz" "${SCRATCHDIR}"
+rsync -a "${INDEX_PREFIX}"*.bt2 "${SCRATCHDIR}"
+
+##### map trimmed reads to combined wolbachia reference #####
+
+bowtie2 \
+  --very-sensitive-local \
+  -p "$THREADS" \
+  --no-unal \
+  -x "wolbCombined" \
+  -1 "${SAMPLE}.R1.fq.gz" \
+  -2 "${SAMPLE}.R2.fq.gz" \
+  -S "${OUTPUT_DIR}/${SAMPLE}.sam"

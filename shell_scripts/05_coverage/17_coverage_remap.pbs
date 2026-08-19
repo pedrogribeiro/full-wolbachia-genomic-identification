@@ -1,0 +1,92 @@
+#!/bin/bash
+# Purpose: remap supergroup-specific reads to the corresponding Wolbachia reference genome
+#          and compute mapping coverage statistics per sample.
+# Note: this is an array job — one job per sample in samples.txt.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N coverage_remap
+#PBS -l select=1:ncpus=10:mem=32gb:scratch_local=60gb
+#PBS -l walltime=12:00:00
+#PBS -o coverage_remap.out
+#PBS -e coverage_remap.err
+#PBS -J 1-84
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+LIST="${PROJECT_DIR}/resources/samples.txt"
+FASTQ_DIR="${PROJECT_DIR}/out_fastq_supergroup${SUPERGROUP}"
+REF_DIR="${PROJECT_DIR}/resources/references"
+REF_GENOME="${REF_DIR}/wolbGenome${SUPERGROUP}.fasta"
+INDEX_PREFIX="${REF_DIR}/wolbGenome${SUPERGROUP}"
+BAM_DIR="${PROJECT_DIR}/out_remap_bam_supergroup${SUPERGROUP}"
+OUTPUT_COV_HIST="${PROJECT_DIR}/out_coverage_hist_supergroup${SUPERGROUP}"
+OUTPUT_COV_TSV="${PROJECT_DIR}/out_coverage_tsv_supergroup${SUPERGROUP}"
+THREADS="10"
+
+##### define substitution list for array variables #####
+
+SAMPLE="$(sed -n "${PBS_ARRAY_INDEX}p" "${LIST}")"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load bowtie2
+module load samtools
+
+##### build reference index if not already done #####
+
+if [ ! -f "${INDEX_PREFIX}.1.bt2" ]; then
+  rsync -a "$REF_GENOME" "${SCRATCHDIR}"
+  bowtie2-build "$(basename "$REF_GENOME")" "wolbGenome${SUPERGROUP}"
+  rsync -a "wolbGenome${SUPERGROUP}"*.bt2 "${REF_DIR}/"
+fi
+
+##### copy necessary files to scratch #####
+
+rsync -a "${FASTQ_DIR}/${SAMPLE}.${SUPERGROUP}.R1.fastq" "${SCRATCHDIR}"
+rsync -a "${FASTQ_DIR}/${SAMPLE}.${SUPERGROUP}.R2.fastq" "${SCRATCHDIR}"
+rsync -a "${INDEX_PREFIX}"*.bt2 "${SCRATCHDIR}"
+
+##### remap and sort in one pipe #####
+
+bowtie2 \
+  --very-sensitive-local \
+  -p "$THREADS" \
+  --no-unal \
+  -x "wolbGenome${SUPERGROUP}" \
+  -1 "${SAMPLE}.${SUPERGROUP}.R1.fastq" \
+  -2 "${SAMPLE}.${SUPERGROUP}.R2.fastq" \
+  | samtools view -h -F 4 -b -S \
+  | samtools sort -@ "$THREADS" \
+  -o "${SAMPLE}.${SUPERGROUP}.remapped.bam"
+
+##### index remapped BAM #####
+
+samtools index "${SAMPLE}.${SUPERGROUP}.remapped.bam"
+
+##### copy BAM to project directory #####
+
+rsync -a "${SAMPLE}.${SUPERGROUP}.remapped.bam" "${BAM_DIR}/"
+rsync -a "${SAMPLE}.${SUPERGROUP}.remapped.bam.bai" "${BAM_DIR}/"
+
+##### compute coverage #####
+
+samtools coverage \
+  "${SAMPLE}.${SUPERGROUP}.remapped.bam" \
+  -m \
+  -o "${OUTPUT_COV_HIST}/${SAMPLE}.${SUPERGROUP}.CovHist.txt"
+
+samtools coverage \
+  "${SAMPLE}.${SUPERGROUP}.remapped.bam" \
+  -o "${OUTPUT_COV_TSV}/${SAMPLE}.${SUPERGROUP}.CovTSV.tsv"

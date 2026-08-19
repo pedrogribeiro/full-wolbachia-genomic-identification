@@ -1,0 +1,59 @@
+#!/bin/bash
+# Purpose: trim introns from SECAPR alignments by adding sample sequences to curated
+#          per-locus reference alignments with MAFFT --addfull --keeplength.
+#          Iterates over all loci in the alignment directory.
+# Note: run once per supergroup — not an array job.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: input FASTA filenames in SECAPR_ALIGN_DIR must match filenames in REF_LOCI_DIR.
+#       Only loci present in the curated reference should be in REF_LOCI_DIR.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N mafft_addfull
+#PBS -l select=1:ncpus=16:mem=64gb:scratch_local=100gb
+#PBS -l walltime=23:59:00
+#PBS -o mafft_addfull.out
+#PBS -e mafft_addfull.err
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+SECAPR_ALIGN_DIR="${PROJECT_DIR}/out_secapr_align_supergroup${SUPERGROUP}"
+REF_LOCI_DIR="${PROJECT_DIR}/resources/allStrains_ref_supergroup${SUPERGROUP}"
+OUTPUT_DIR="${PROJECT_DIR}/out_mafft_keeplength_supergroup${SUPERGROUP}"
+THREADS="16"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load mafft
+
+##### copy necessary files to scratch #####
+
+rsync -a "${SECAPR_ALIGN_DIR}/" "${SCRATCHDIR}/secapr_align/"
+rsync -a "${REF_LOCI_DIR}/" "${SCRATCHDIR}/ref_loci/"
+
+##### loop over all loci and add sample sequences to reference alignment #####
+
+for file in "${SCRATCHDIR}/secapr_align/"*.fasta; do
+  locus=$(basename "$file")
+  ref_file="${SCRATCHDIR}/ref_loci/${locus}"
+  if [ ! -f "$ref_file" ]; then
+    echo "WARNING: no matching reference for ${locus} — skipping"
+    continue
+  fi
+  mafft \
+    --addfull "$file" \
+    --thread "$THREADS" \
+    --keeplength \
+    "$ref_file" \
+    > "${OUTPUT_DIR}/${locus}"
+done

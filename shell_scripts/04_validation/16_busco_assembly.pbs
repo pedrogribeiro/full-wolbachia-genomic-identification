@@ -1,0 +1,54 @@
+#!/bin/bash
+# Purpose: assess completeness of Wolbachia assembled contigs per sample using BUSCO
+#          with the bacteria_odb10 lineage dataset.
+# Note: this is an array job — one job per sample in samples.txt.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N busco_assembly
+#PBS -l select=1:ncpus=2:mem=8gb:scratch_local=20gb
+#PBS -l walltime=6:00:00
+#PBS -o busco_assembly.out
+#PBS -e busco_assembly.err
+#PBS -J 1-84
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+LIST="${PROJECT_DIR}/resources/samples.txt"
+CONTIGS_DIR="${PROJECT_DIR}/out_spades_supergroup${SUPERGROUP}"
+OUTPUT_DIR="${PROJECT_DIR}/out_busco_supergroup${SUPERGROUP}"
+LINEAGE="bacteria_odb10"
+THREADS="2"
+
+##### define substitution list for array variables #####
+
+SAMPLE="$(sed -n "${PBS_ARRAY_INDEX}p" "${LIST}")"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load busco
+
+##### copy necessary files to scratch #####
+
+rsync -a "${CONTIGS_DIR}/${SAMPLE}/contigs.fasta" "${SCRATCHDIR}/${SAMPLE}.fasta"
+
+##### run busco #####
+
+busco \
+  -i "${SAMPLE}.fasta" \
+  -l "$LINEAGE" \
+  -o "${SAMPLE}.${SUPERGROUP}" \
+  --out_path "$OUTPUT_DIR" \
+  -m genome \
+  -c "$THREADS"

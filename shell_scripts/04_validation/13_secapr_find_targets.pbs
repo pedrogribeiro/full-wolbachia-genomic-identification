@@ -1,0 +1,53 @@
+#!/bin/bash
+# Purpose: find and extract target loci contigs from SPAdes assemblies using SECAPR,
+#          using the curated Wolbachia loci reference.
+# Note: run once per supergroup — not an array job.
+#       SECAPR find_target_contigs takes a directory of all sample FASTAs as input.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N secapr_find_targets
+#PBS -l select=1:ncpus=8:mem=32gb:scratch_local=60gb
+#PBS -l walltime=23:59:00
+#PBS -o secapr_find_targets.out
+#PBS -e secapr_find_targets.err
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+CONTIGS_DIR="${PROJECT_DIR}/out_spades_supergroup${SUPERGROUP}_all"
+REFERENCE="${PROJECT_DIR}/out_curated_loci_fasta/extractedSuper${SUPERGROUP}Genes.fasta"
+OUTPUT_DIR="${PROJECT_DIR}/out_secapr_find_targets_supergroup${SUPERGROUP}"
+CONDA_ENV="secapr_env"
+TARGET_LENGTH=50
+MIN_IDENTITY=95
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+source ~/.bashrc
+mamba activate "$CONDA_ENV"
+
+##### copy necessary files to scratch #####
+
+rsync -a "$CONTIGS_DIR/" "${SCRATCHDIR}/contigs/"
+rsync -a "$REFERENCE" "${SCRATCHDIR}"
+
+##### find and extract target contigs across all samples #####
+
+secapr find_target_contigs \
+  --contigs "${SCRATCHDIR}/contigs/" \
+  --reference "$(basename "$REFERENCE")" \
+  --output "$OUTPUT_DIR" \
+  --target_length "$TARGET_LENGTH" \
+  --keep_paralogs \
+  --min_identity "$MIN_IDENTITY"

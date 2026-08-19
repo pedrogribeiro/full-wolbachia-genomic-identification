@@ -1,0 +1,37 @@
+#!/bin/bash
+# Purpose: aggregate FastQC reports across all samples with MultiQC.
+# Note: run after all 01_fastqc_raw.pbs array jobs have completed.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N multiqc_raw
+#PBS -l select=1:ncpus=1:mem=8gb:scratch_local=10gb
+#PBS -l walltime=1:00:00
+#PBS -o multiqc_raw.out
+#PBS -e multiqc_raw.err
+
+##### define variables #####
+
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+FASTQC_DIR="${PROJECT_DIR}/out_fastqc_raw"
+OUTPUT_DIR="${PROJECT_DIR}/out_multiqc_raw"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load multiqc
+
+##### copy necessary files to scratch #####
+
+rsync -a "${FASTQC_DIR}/" "${SCRATCHDIR}/fastqc_input/"
+
+##### run multiqc #####
+
+multiqc "${SCRATCHDIR}/fastqc_input/" \
+  -o "$OUTPUT_DIR"

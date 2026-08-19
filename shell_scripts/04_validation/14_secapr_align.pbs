@@ -1,0 +1,49 @@
+#!/bin/bash
+# Purpose: align extracted target contigs per locus across all samples using SECAPR.
+# Note: run once per supergroup — not an array job.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: --no_trim is intentional; intron trimming is handled in the MAFFT step (script 15).
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N secapr_align
+#PBS -l select=1:ncpus=10:mem=48gb:scratch_local=100gb
+#PBS -l walltime=23:59:00
+#PBS -o secapr_align.out
+#PBS -e secapr_align.err
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+SEQUENCES="${PROJECT_DIR}/out_secapr_find_targets_supergroup${SUPERGROUP}/extracted_target_contigs_all_samples.fasta"
+OUTPUT_DIR="${PROJECT_DIR}/out_secapr_align_supergroup${SUPERGROUP}"
+CONDA_ENV="secapr_env"
+ALIGNER="mafft"
+CORES="10"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+source ~/.bashrc
+mamba activate "$CONDA_ENV"
+
+##### copy necessary files to scratch #####
+
+rsync -a "$SEQUENCES" "${SCRATCHDIR}"
+
+##### align extracted target contigs with SECAPR #####
+
+secapr align_sequences \
+  --sequences "$(basename "$SEQUENCES")" \
+  --outdir "$OUTPUT_DIR" \
+  --aligner "$ALIGNER" \
+  --no_trim \
+  --cores "$CORES"

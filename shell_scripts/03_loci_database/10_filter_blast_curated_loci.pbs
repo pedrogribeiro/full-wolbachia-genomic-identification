@@ -1,0 +1,59 @@
+#!/bin/bash
+# Purpose: filter BLAST results by bitscore and percent identity, retain only unique loci,
+#          extract sequences, and convert to FASTA format to produce a curated loci database.
+# Note: run once per supergroup after 09_blast_curated_loci.pbs has completed.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N filter_curated_loci
+#PBS -l select=1:ncpus=1:mem=4gb:scratch_local=5gb
+#PBS -l walltime=1:00:00
+#PBS -o filter_curated_loci.out
+#PBS -e filter_curated_loci.err
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+INPUT_TSV="${PROJECT_DIR}/out_blast_curated_loci/Super${SUPERGROUP}Loci.tsv"
+OUTPUT_DIR="${PROJECT_DIR}/out_curated_loci_fasta"
+BITSCORE_MIN=300
+EVALUE_MAX="1.0e-10"
+PIDENT_MIN=85
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### copy necessary files to scratch #####
+
+rsync -a "$INPUT_TSV" "${SCRATCHDIR}"
+
+##### step 1: filter by bitscore and e-value #####
+
+awk -F'\t' -v bs="$BITSCORE_MIN" -v ev="$EVALUE_MAX" \
+  '$10 > bs && $9 < ev' \
+  "Super${SUPERGROUP}Loci.tsv" > tmp_filter1.tsv
+
+##### step 2: filter by percent identity #####
+
+awk -F'\t' -v pi="$PIDENT_MIN" \
+  '$12 > pi' \
+  tmp_filter1.tsv > tmp_filter2.tsv
+
+##### step 3: keep only first occurrence of each locus #####
+
+awk -F'_' '!seen[$1]++' tmp_filter2.tsv > tmp_unique.tsv
+
+##### step 4: extract locus name and sequence #####
+
+awk -F'\t' '{print $1, $18}' tmp_unique.tsv > tmp_extracted.tsv
+
+##### step 5: convert to FASTA #####
+
+awk '{print ">" $1 "\n" $2}' tmp_extracted.tsv \
+  > "${OUTPUT_DIR}/extractedSuper${SUPERGROUP}Genes.fasta"

@@ -1,0 +1,75 @@
+#!/bin/bash
+# Purpose: prepare per-locus FASTA alignments for concatenation:
+#          convert to single-line FASTA, remove empty lines and empty files,
+#          replace gap characters "-" with "N", and fill missing sequences
+#          across samples using SECAPR add_missing_sequences.
+# Note: run once per supergroup — not an array job.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: input FASTAs are the per-locus alignments produced by script 15 (MAFFT --addfull).
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N prep_concat_fastas
+#PBS -l select=1:ncpus=4:mem=16gb:scratch_local=30gb
+#PBS -l walltime=4:00:00
+#PBS -o prep_concat_fastas.out
+#PBS -e prep_concat_fastas.err
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+INPUT_DIR="${PROJECT_DIR}/out_mafft_keeplength_supergroup${SUPERGROUP}"
+OUTPUT_DIR="${PROJECT_DIR}/out_secapr_add_missing_supergroup${SUPERGROUP}"
+CONDA_ENV="secapr_env"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+source ~/.bashrc
+mamba activate "$CONDA_ENV"
+
+##### copy necessary files to scratch #####
+
+rsync -a "${INPUT_DIR}/" "${SCRATCHDIR}/work/"
+cd "${SCRATCHDIR}/work" || exit 1
+
+##### step 1: convert multi-line FASTAs to single-line FASTAs #####
+
+for file in *.fasta; do
+  awk 'NR==1 {printf("%s\n", $0); next} /^>/ {printf("\n%s\n",$0); next} {printf("%s",$0)} END {printf("\n")}' \
+    "$file" > "${file%%.*}.fas"
+done
+rm -f ./*.fasta
+
+##### step 2: remove empty lines; delete empty files #####
+
+for file in *.fas; do
+  sed -i '/^\s*$/d' "$file"
+done
+find . -empty -type f -delete
+
+##### step 3: replace gap characters "-" with "N" in sequence lines #####
+
+for file in *.fas; do
+  sed -i '/^>/!y/-/N/' "$file"
+done
+
+##### step 4: restore .fasta extension #####
+
+for file in *.fas; do
+  mv "$file" "${file%%.*}.fasta"
+done
+
+##### step 5: fill missing sequences across samples #####
+
+secapr add_missing_sequences \
+  --input "${SCRATCHDIR}/work" \
+  --output "$OUTPUT_DIR"

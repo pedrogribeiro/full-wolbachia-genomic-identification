@@ -1,0 +1,46 @@
+#!/bin/bash
+# Purpose: run FastQC on raw reads for each sample (R1 and R2).
+# Note: this is an array job — one job per sample in samples.txt.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N fastqc_raw
+#PBS -l select=1:ncpus=2:mem=8gb:scratch_local=20gb
+#PBS -l walltime=4:00:00
+#PBS -o fastqc_raw.out
+#PBS -e fastqc_raw.err
+#PBS -J 1-84
+
+##### define variables #####
+
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+LIST="${PROJECT_DIR}/resources/samples.txt"
+RAW_DIR="${PROJECT_DIR}/data/raw"
+OUTPUT_DIR="${PROJECT_DIR}/out_fastqc_raw"
+
+##### define substitution list for array variables #####
+
+SAMPLE="$(sed -n "${PBS_ARRAY_INDEX}p" "${LIST}")"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load fastqc
+
+##### copy necessary files to scratch #####
+
+rsync -a "${RAW_DIR}/${SAMPLE}.R1.fq.gz" "${SCRATCHDIR}"
+rsync -a "${RAW_DIR}/${SAMPLE}.R2.fq.gz" "${SCRATCHDIR}"
+
+##### run fastqc #####
+
+fastqc \
+  -o "$OUTPUT_DIR" \
+  "${SAMPLE}.R1.fq.gz" \
+  "${SAMPLE}.R2.fq.gz"

@@ -1,0 +1,56 @@
+#!/bin/bash
+# Purpose: assemble Wolbachia contigs from supergroup-specific reads using SPAdes.
+# Note: this is an array job — one job per sample in samples.txt.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N spades_assembly
+#PBS -l select=1:ncpus=8:mem=48gb:scratch_local=100gb
+#PBS -l walltime=23:59:00
+#PBS -o spades_assembly.out
+#PBS -e spades_assembly.err
+#PBS -J 1-84
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+LIST="${PROJECT_DIR}/resources/samples.txt"
+FASTQ_DIR="${PROJECT_DIR}/out_fastq_supergroup${SUPERGROUP}"
+OUTPUT_DIR="${PROJECT_DIR}/out_spades_supergroup${SUPERGROUP}"
+THREADS="8"
+MEMORY="10"
+KMERS="21,33,77"
+
+##### define substitution list for array variables #####
+
+SAMPLE="$(sed -n "${PBS_ARRAY_INDEX}p" "${LIST}")"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load spades
+
+##### copy necessary files to scratch #####
+
+rsync -a "${FASTQ_DIR}/${SAMPLE}.${SUPERGROUP}.R1.fastq" "${SCRATCHDIR}"
+rsync -a "${FASTQ_DIR}/${SAMPLE}.${SUPERGROUP}.R2.fastq" "${SCRATCHDIR}"
+
+##### run spades assembly #####
+
+spades.py \
+  --tmp-dir "$SCRATCHDIR" \
+  -k "$KMERS" \
+  -t "$THREADS" \
+  -m "$MEMORY" \
+  --pe1-1 "${SAMPLE}.${SUPERGROUP}.R1.fastq" \
+  --pe1-2 "${SAMPLE}.${SUPERGROUP}.R2.fastq" \
+  -o "${OUTPUT_DIR}/${SAMPLE}"

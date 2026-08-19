@@ -1,0 +1,59 @@
+#!/bin/bash
+# Purpose: build BLAST nucleotide databases from Wolbachia reference genomes and
+#          search the 210-loci reference dataset against each supergroup database.
+# Note: run once per supergroup — not an array job.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: reference genome FASTAs and the 210-loci query must be in resources/references/.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N blast_curated_loci
+#PBS -l select=1:ncpus=4:mem=16gb:scratch_local=20gb
+#PBS -l walltime=4:00:00
+#PBS -o blast_curated_loci.out
+#PBS -e blast_curated_loci.err
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+REF_DIR="${PROJECT_DIR}/resources/references"
+REF_GENOME="${REF_DIR}/wolbGenome${SUPERGROUP}.fasta"
+DB_PREFIX="${REF_DIR}/wolbGenome${SUPERGROUP}"
+QUERY="${REF_DIR}/210ConsensusWolbLoci.fasta"
+OUTPUT_DIR="${PROJECT_DIR}/out_blast_curated_loci"
+THREADS="4"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load blast+
+
+##### copy necessary files to scratch #####
+
+rsync -a "$REF_GENOME" "${SCRATCHDIR}"
+rsync -a "$QUERY" "${SCRATCHDIR}"
+
+##### build nucleotide blast database #####
+
+makeblastdb \
+  -in "wolbGenome${SUPERGROUP}.fasta" \
+  -out "wolbGenome${SUPERGROUP}" \
+  -parse_seqids \
+  -dbtype nucl
+
+##### search 210-loci reference against supergroup database #####
+
+blastn \
+  -db "wolbGenome${SUPERGROUP}" \
+  -query "210ConsensusWolbLoci.fasta" \
+  -num_threads "$THREADS" \
+  -out "${OUTPUT_DIR}/Super${SUPERGROUP}Loci.tsv" \
+  -outfmt "6 qseqid qlen sseqid slen qstart qend sstart send evalue bitscore length pident nident mismatch gapopen gaps qseq sseq delim=;"

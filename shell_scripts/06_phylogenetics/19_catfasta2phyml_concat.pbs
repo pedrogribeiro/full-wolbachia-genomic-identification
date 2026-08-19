@@ -1,0 +1,45 @@
+#!/bin/bash
+# Purpose: concatenate per-locus FASTA alignments into a single phylip file
+#          and generate a partitions file using catfasta2phyml.
+# Note: run once per supergroup — not an array job.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: catfasta2phyml must be installed and accessible; see https://github.com/nylander/catfasta2phyml.
+# Note: the partitions.txt output is used as a starting point for the PartitionFinder config file.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N catfasta2phyml_concat
+#PBS -l select=1:ncpus=2:mem=8gb:scratch_local=20gb
+#PBS -l walltime=2:00:00
+#PBS -o catfasta2phyml_concat.out
+#PBS -e catfasta2phyml_concat.err
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+INPUT_DIR="${PROJECT_DIR}/out_secapr_add_missing_supergroup${SUPERGROUP}"
+OUTPUT_DIR="${PROJECT_DIR}/out_concat_supergroup${SUPERGROUP}"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load catfasta2phyml
+
+##### copy necessary files to scratch #####
+
+rsync -a "${INPUT_DIR}/" "${SCRATCHDIR}/input/"
+cd "${SCRATCHDIR}/input" || exit 1
+
+##### concatenate all locus FASTAs into one phylip file #####
+
+catfasta2phyml.pl --sequential *.fasta \
+  > "${OUTPUT_DIR}/ConcatenatedLoci.phy" \
+  2> "${OUTPUT_DIR}/partitions.txt"

@@ -1,0 +1,63 @@
+#!/bin/bash
+# Purpose: convert SAM to BAM, sort, and split by Wolbachia supergroup (A or B) per sample.
+# Note: this is an array job — one job per sample in samples.txt.
+# Note: SUPERGROUP_HEADER must match the sequence header of the supergroup reference genome used.
+#       NC_002978.6 = supergroup A (wMel); NC_010981.1 = supergroup B (wPip).
+#       Adjust if using different reference genomes.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N samtools_split_supergroups
+#PBS -l select=1:ncpus=4:mem=16gb:scratch_local=40gb
+#PBS -l walltime=6:00:00
+#PBS -o samtools_split_supergroups.out
+#PBS -e samtools_split_supergroups.err
+#PBS -J 1-84
+
+##### define variables #####
+
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+LIST="${PROJECT_DIR}/resources/samples.txt"
+SAM_DIR="${PROJECT_DIR}/out_bowtie2_mapping"
+BAM_DIR="${PROJECT_DIR}/out_bam_sorted"
+OUTPUT_DIR_A="${PROJECT_DIR}/out_bam_supergroupA"
+OUTPUT_DIR_B="${PROJECT_DIR}/out_bam_supergroupB"
+SUPERGROUP_HEADER_A="NC_002978.6"
+SUPERGROUP_HEADER_B="NC_010981.1"
+THREADS="4"
+
+##### define substitution list for array variables #####
+
+SAMPLE="$(sed -n "${PBS_ARRAY_INDEX}p" "${LIST}")"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load samtools
+
+##### copy necessary files to scratch #####
+
+rsync -a "${SAM_DIR}/${SAMPLE}.sam" "${SCRATCHDIR}"
+
+##### convert SAM to BAM and sort (piped to avoid intermediate unsorted BAM) #####
+
+samtools view -h -F 4 -b -S "${SAMPLE}.sam" \
+  | samtools sort -@ "$THREADS" -o "${SAMPLE}.bam"
+
+##### index sorted BAM #####
+
+samtools index "${SAMPLE}.bam"
+
+##### split by supergroup #####
+
+samtools view -b -h "${SAMPLE}.bam" "$SUPERGROUP_HEADER_A" \
+  > "${OUTPUT_DIR_A}/${SAMPLE}.A.bam"
+
+samtools view -b -h "${SAMPLE}.bam" "$SUPERGROUP_HEADER_B" \
+  > "${OUTPUT_DIR_B}/${SAMPLE}.B.bam"

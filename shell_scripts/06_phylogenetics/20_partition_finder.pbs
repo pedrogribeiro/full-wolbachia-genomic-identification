@@ -1,0 +1,47 @@
+#!/bin/bash
+# Purpose: run PartitionFinder to identify the best-fit partitioning scheme and
+#          substitution models for the concatenated loci alignment.
+# Note: run once per supergroup — not an array job.
+# Note: set SUPERGROUP to "A" or "B" to process the corresponding supergroup.
+#       Submit separately for each supergroup.
+# Note: partition_finder.cfg must be manually prepared from the partitions.txt generated
+#       in script 19 and placed inside the PartitionFinder input directory.
+#       See PartitionFinder documentation for config file format.
+# Note: this is an HPC/PBS example and paths should be adapted to the local system.
+
+##### define pbs settings #####
+
+#PBS -N partition_finder
+#PBS -l select=1:ncpus=16:mem=64gb:scratch_local=100gb
+#PBS -l walltime=23:59:00
+#PBS -o partition_finder.out
+#PBS -e partition_finder.err
+
+##### define variables #####
+
+SUPERGROUP="A"                      # toggle between "A" and "B" — resubmit for each
+PROJECT_DIR="/storage/brno12-cerit/home/pedroribeiro/wolbachia_eudaminae"
+PF_DIR="${PROJECT_DIR}/in_partition_finder_supergroup${SUPERGROUP}"
+THREADS="16"
+RCLUSTER_PERCENT="10"
+
+##### system specific definitions #####
+
+trap 'clean_scratch' TERM EXIT
+cd "$SCRATCHDIR" || exit 1
+export TMPDIR="$SCRATCHDIR"
+
+##### activate environment #####
+
+module load partitionfinder
+
+##### copy necessary files to scratch #####
+
+rsync -a "${PF_DIR}/" "${SCRATCHDIR}/pf_input/"
+
+##### run partitionfinder #####
+
+PartitionFinder.py "${SCRATCHDIR}/pf_input/" \
+  --raxml \
+  --rcluster-percent "$RCLUSTER_PERCENT" \
+  -p "$THREADS"
